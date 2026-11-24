@@ -1,44 +1,69 @@
-
 import { useEffect, useState } from 'react'
-import { getHealth } from './services/api'
-import type { HealthResponse } from './types/api'
+import { AuthView } from './components/AuthView'
+import { Workspace } from './components/Workspace'
+import { getHealth, getMe, getStoredToken, removeStoredToken } from './services/api'
+import type { HealthResponse, User } from './types'
 import './App.css'
 
 function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
 
-    async function checkBackend() {
+    async function init() {
+      // 1. Health check
       try {
         const data = await getHealth()
-
         if (!cancelled) {
           setHealth(data)
           setError(null)
         }
       } catch {
         if (!cancelled) {
-          setError('Backend unavailable. Check the FastAPI server.')
+          setError('Backend unavailable. Ensure the FastAPI server is running at port 8000.')
         }
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
+      }
+
+      // 2. Validate existing token session
+      const token = getStoredToken()
+      if (token) {
+        try {
+          const currentUser = await getMe()
+          if (!cancelled) {
+            setUser(currentUser)
+          }
+        } catch {
+          removeStoredToken()
+          if (!cancelled) {
+            setUser(null)
+          }
         }
+      }
+
+      if (!cancelled) {
+        setLoading(false)
       }
     }
 
-    void checkBackend()
+    void init()
 
     return () => {
       cancelled = true
     }
   }, [])
 
-  const connected = health?.status === 'ok'
+  const handleLogout = () => {
+    removeStoredToken()
+    setUser(null)
+  }
+
+  const handleAuthSuccess = (authenticatedUser: User) => {
+    setUser(authenticatedUser)
+  }
 
   return (
     <main className="dashboard">
@@ -48,87 +73,39 @@ function App() {
           SprintFlow
         </a>
 
-        <span className="environment">LOCAL DEVELOPMENT</span>
+        <div className="topbar-right">
+          <span className={`status-indicator ${health?.status === 'ok' ? 'online' : 'offline'}`}>
+            <span className="dot"></span>
+            {health?.status === 'ok' ? 'API Online' : 'API Offline'}
+          </span>
+          <span className="environment">LOCAL DEVELOPMENT</span>
+        </div>
       </header>
 
-      <section className="welcome">
-        <p className="eyebrow">YOUR TEAM WORKSPACE</p>
-        <h1>Make progress, together.</h1>
-        <p className="subtitle">
-          Plan projects, organize tasks, and turn ideas into action.
-        </p>
-      </section>
-
-      <section className="overview">
-        <div className="section-heading">
-          <div>
-            <h2>Workspace overview</h2>
-            <p>Your project management workspace at a glance.</p>
-          </div>
+      {error && (
+        <div className="alert-error" style={{ marginTop: '16px' }} role="alert">
+          {error}
         </div>
+      )}
 
-        <div className="cards">
-          <article className="card">
-            <span className="card-icon purple">P</span>
-            <p className="card-label">Projects</p>
-            <h3>Coming next</h3>
-            <p className="card-description">
-              Organize your team's work.
-            </p>
-          </article>
-
-          <article className="card">
-            <span className="card-icon blue">T</span>
-            <p className="card-label">Tasks</p>
-            <h3>Coming next</h3>
-            <p className="card-description">
-              Track work and priorities.
-            </p>
-          </article>
-
-          <article className="card">
-            <span className="card-icon green">AI</span>
-            <p className="card-label">AI assistant</p>
-            <h3>Coming next</h3>
-            <p className="card-description">
-              Break large tasks into subtasks.
-            </p>
-          </article>
+      {loading ? (
+        <div className="loading-state" style={{ padding: '64px 0', textAlign: 'center' }}>
+          Checking session & API health...
         </div>
-      </section>
+      ) : user ? (
+        <Workspace user={user} onLogout={handleLogout} />
+      ) : (
+        <AuthView onAuthSuccess={handleAuthSuccess} />
+      )}
 
-      <section className="connection">
-        <div>
-          <p className="card-label">Backend connection</p>
-          <h2>
-            {loading
-              ? 'Checking connection...'
-              : connected
-                ? 'API connected'
-                : 'Connection failed'}
-          </h2>
-          <p className="card-description">
-            {loading
-              ? 'Contacting the SprintFlow API.'
-              : connected
-                ? `${health.project} backend is responding successfully.`
-                : error}
-          </p>
+      <footer className="footer-status">
+        <div className="footer-meta">
+          <span>Backend: {health?.project || 'SprintFlow'}</span>
+          <span>•</span>
+          <span>Target: {import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}</span>
+          <span>•</span>
+          <span>JWT Auth: HS256 Protected</span>
         </div>
-
-        <span
-          className={`status ${
-            loading ? 'pending' : connected ? 'online' : 'offline'
-          }`}
-          role="status"
-        >
-          <span className="status-dot" />
-          {loading ? 'Checking' : connected ? 'Online' : 'Offline'}
-        </span>
-      </section>
-
-      <footer>
-        SprintFlow · Built for focused teamwork
       </footer>
     </main>
   )

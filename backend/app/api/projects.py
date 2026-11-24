@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_or_create_default_user
+from app.api.deps import get_current_user, get_db
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
@@ -12,28 +12,17 @@ router = APIRouter()
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(
     project_in: ProjectCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Create a new project.
-    If owner_id is not specified in Day 2, resolves to the default dev user.
+    Sets owner_id from the authenticated current user.
     """
-    owner_id = project_in.owner_id
-    if owner_id is not None:
-        owner = db.get(User, owner_id)
-        if not owner:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"User with id {owner_id} does not exist.",
-            )
-    else:
-        default_user = get_or_create_default_user(db)
-        owner_id = default_user.id
-
     project = Project(
         name=project_in.name.strip(),
         description=project_in.description.strip() if project_in.description else None,
-        owner_id=owner_id,
+        owner_id=current_user.id,
     )
     db.add(project)
     db.commit()
@@ -43,15 +32,17 @@ def create_project(
 
 @router.get("", response_model=list[ProjectResponse])
 def list_projects(
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all projects."""
+    """List all projects (Batch 1 allows authenticated access; strict user scoping in Batch 2)."""
     return db.query(Project).order_by(Project.id.asc()).all()
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project(
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Get a project by ID."""
@@ -68,6 +59,7 @@ def get_project(
 def update_project(
     project_id: int,
     project_in: ProjectUpdate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Partially update an existing project."""
@@ -97,6 +89,7 @@ def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(
     project_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Delete a project by ID (cascades to all associated tasks)."""

@@ -8,6 +8,8 @@ dependencies = [
     "alembic",
     "psycopg[binary]",
     "pydantic-settings",
+    "pyjwt",
+    "bcrypt",
 ]
 
 [project.optional-dependencies]

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.models.enums import TaskPriority, TaskStatus
 from app.models.project import Project
 from app.models.task import Task
+from app.models.user import User
 from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
 
 router = APIRouter()
@@ -13,6 +14,7 @@ router = APIRouter()
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 def create_task(
     task_in: TaskCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -45,6 +47,7 @@ def list_tasks(
     project_id: int | None = Query(default=None, description="Filter tasks by project ID"),
     status: TaskStatus | None = Query(default=None, description="Filter tasks by status"),
     priority: TaskPriority | None = Query(default=None, description="Filter tasks by priority"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """List tasks, optionally filtered by project_id, status, or priority."""
@@ -62,6 +65,7 @@ def list_tasks(
 @router.get("/{task_id}", response_model=TaskResponse)
 def get_task(
     task_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Get a task by ID."""
@@ -78,6 +82,7 @@ def get_task(
 def update_task(
     task_id: int,
     task_in: TaskUpdate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Partially update an existing task."""
@@ -113,6 +118,7 @@ def update_task(
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_task(
     task_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Delete a task by ID."""

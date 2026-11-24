@@ -10,8 +10,9 @@ class UserCreate(UserBase):
     password: str
 
 
-class UserResponse(UserBase):
+class UserResponse(BaseModel):
     id: int
+    email: str
     created_at: datetime
     updated_at: datetime
 

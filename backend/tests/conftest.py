@@ -1,3 +1,4 @@
+from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
@@ -5,8 +6,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_db
+from app.core.security import create_access_token, hash_password
 from app.db.base import Base
 from app.main import app
+from app.models.user import User
 
 # Isolated in-memory SQLite database for testing
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -60,3 +63,23 @@ def client(db_session):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def test_user(db_session):
+    """Provide a default registered test user."""
+    user = User(
+        email="testuser@example.com",
+        password_hash=hash_password("password123"),
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def auth_headers(test_user):
+    """Provide Bearer auth headers for the test user."""
+    token = create_access_token(subject=test_user.id)
+    return {"Authorization": f"Bearer {token}"}
