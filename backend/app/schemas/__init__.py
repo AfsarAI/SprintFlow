@@ -1,3 +1,4 @@
+from app.schemas.ai import BatchTaskCreate, SubtaskItem, SubtaskSuggestionResponse
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
 from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
@@ -15,4 +16,7 @@ __all__ = [
     "TaskCreate",
     "TaskUpdate",
     "TaskResponse",
+    "SubtaskItem",
+    "SubtaskSuggestionResponse",
+    "BatchTaskCreate",
 ]

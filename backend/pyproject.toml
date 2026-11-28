@@ -10,6 +10,7 @@ dependencies = [
     "pydantic-settings",
     "pyjwt",
     "bcrypt",
+    "google-genai",
 ]
 
 [project.optional-dependencies]

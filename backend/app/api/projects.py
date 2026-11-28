@@ -17,7 +17,7 @@ def create_project(
 ):
     """
     Create a new project.
-    Sets owner_id from the authenticated current user.
+    Sets owner_id strictly from the authenticated current user.
     """
     project = Project(
         name=project_in.name.strip(),
@@ -35,8 +35,13 @@ def list_projects(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all projects (Batch 1 allows authenticated access; strict user scoping in Batch 2)."""
-    return db.query(Project).order_by(Project.id.asc()).all()
+    """List all projects owned by the authenticated current user."""
+    return (
+        db.query(Project)
+        .filter(Project.owner_id == current_user.id)
+        .order_by(Project.id.asc())
+        .all()
+    )
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -45,12 +50,17 @@ def get_project(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get a project by ID."""
+    """Get a project by ID, strictly enforcing user ownership."""
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project with id {project_id} not found.",
+        )
+    if project.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to access this project.",
         )
     return project
 
@@ -62,12 +72,17 @@ def update_project(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Partially update an existing project."""
+    """Partially update an existing project, strictly enforcing user ownership."""
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project with id {project_id} not found.",
+        )
+    if project.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify this project.",
         )
 
     update_data = project_in.model_dump(exclude_unset=True)
@@ -92,12 +107,17 @@ def delete_project(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Delete a project by ID (cascades to all associated tasks)."""
+    """Delete a project by ID, strictly enforcing user ownership."""
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project with id {project_id} not found.",
+        )
+    if project.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete this project.",
         )
 
     db.delete(project)

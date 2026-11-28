@@ -1,10 +1,12 @@
 import type {
+  BatchTaskCreate,
   HealthResponse,
   LoginInput,
   Project,
   ProjectCreateInput,
   ProjectUpdateInput,
   RegisterInput,
+  SubtaskSuggestionResponse,
   Task,
   TaskCreateInput,
   TaskPriority,
@@ -158,6 +160,13 @@ export async function createTask(input: TaskCreateInput): Promise<Task> {
   }, true)
 }
 
+export async function batchCreateTasks(input: BatchTaskCreate): Promise<Task[]> {
+  return request<Task[]>('/tasks/batch', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, true)
+}
+
 export async function getTask(id: number): Promise<Task> {
   return request<Task>(`/tasks/${id}`, { method: 'GET' }, true)
 }
@@ -171,4 +180,11 @@ export async function updateTask(id: number, input: TaskUpdateInput): Promise<Ta
 
 export async function deleteTask(id: number): Promise<void> {
   return request<void>(`/tasks/${id}`, { method: 'DELETE' }, true)
+}
+
+// AI Subtask Suggestions API
+export async function suggestSubtasks(taskId: number): Promise<SubtaskSuggestionResponse> {
+  return request<SubtaskSuggestionResponse>(`/tasks/${taskId}/suggest-subtasks`, {
+    method: 'POST',
+  }, true)
 }

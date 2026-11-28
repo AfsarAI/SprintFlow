@@ -67,7 +67,7 @@ def client(db_session):
 
 @pytest.fixture
 def test_user(db_session):
-    """Provide a default registered test user."""
+    """Provide a default registered test user (User A)."""
     user = User(
         email="testuser@example.com",
         password_hash=hash_password("password123"),
@@ -80,6 +80,26 @@ def test_user(db_session):
 
 @pytest.fixture
 def auth_headers(test_user):
-    """Provide Bearer auth headers for the test user."""
+    """Provide Bearer auth headers for User A."""
     token = create_access_token(subject=test_user.id)
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def other_user(db_session):
+    """Provide a second test user (User B) for cross-user tests."""
+    user = User(
+        email="otheruser@example.com",
+        password_hash=hash_password("password456"),
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def other_auth_headers(other_user):
+    """Provide Bearer auth headers for User B."""
+    token = create_access_token(subject=other_user.id)
     return {"Authorization": f"Bearer {token}"}

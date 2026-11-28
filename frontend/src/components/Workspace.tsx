@@ -1,17 +1,20 @@
 import React, { useEffect, useState } from 'react'
 import {
+  batchCreateTasks,
   createProject,
   createTask,
   deleteProject,
   deleteTask,
   getProjects,
   getTasks,
+  suggestSubtasks,
   updateProject,
   updateTask,
 } from '../services/api'
 import type {
   Project,
   ProjectCreateInput,
+  SubtaskItem,
   Task,
   TaskCreateInput,
   TaskPriority,
@@ -24,11 +27,17 @@ interface WorkspaceProps {
   onLogout: () => void
 }
 
+interface EditableSubtask extends SubtaskItem {
+  id: string
+  selected: boolean
+}
+
 export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
   const [projects, setProjects] = useState<Project[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   // Filtering states
   const [selectedProjectId, setSelectedProjectId] = useState<number | 'all'>('all')
@@ -50,6 +59,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
   const [taskStatus, setTaskStatus] = useState<TaskStatus>('todo')
   const [taskPriority, setTaskPriority] = useState<TaskPriority>('medium')
   const [taskDueDate, setTaskDueDate] = useState('')
+
+  // AI Subtasks Modal states
+  const [showAiModal, setShowAiModal] = useState(false)
+  const [aiTargetTask, setAiTargetTask] = useState<Task | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiSubtasks, setAiSubtasks] = useState<EditableSubtask[]>([])
+  const [aiSaving, setAiSaving] = useState(false)
 
   // Fetch initial data
   const fetchData = async () => {
@@ -73,6 +90,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
   useEffect(() => {
     void fetchData()
   }, [])
+
+  const showSuccess = (msg: string) => {
+    setSuccessMessage(msg)
+    setTimeout(() => setSuccessMessage(null), 4000)
+  }
 
   // Project actions
   const handleOpenCreateProject = () => {
@@ -100,6 +122,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
           description: projectDescription.trim() || undefined,
         })
         setProjects(projects.map((p) => (p.id === updated.id ? updated : p)))
+        showSuccess('Project updated successfully.')
       } else {
         const input: ProjectCreateInput = {
           name: projectName.trim(),
@@ -107,6 +130,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
         }
         const created = await createProject(input)
         setProjects([...projects, created])
+        showSuccess('Project created successfully.')
       }
       setShowProjectModal(false)
     } catch (err: unknown) {
@@ -115,12 +139,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
   }
 
   const handleDeleteProject = async (id: number) => {
-    if (!window.confirm('Delete this project and all its tasks?')) return
+    if (!window.confirm('Delete this project and all its associated tasks?')) return
     try {
       await deleteProject(id)
       setProjects(projects.filter((p) => p.id !== id))
       setTasks(tasks.filter((t) => t.project_id !== id))
       if (selectedProjectId === id) setSelectedProjectId('all')
+      showSuccess('Project deleted.')
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : 'Failed to delete project.')
     }
@@ -165,6 +190,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
           due_date: taskDueDate ? new Date(taskDueDate).toISOString() : null,
         })
         setTasks(tasks.map((t) => (t.id === updated.id ? updated : t)))
+        showSuccess('Task updated successfully.')
       } else {
         const input: TaskCreateInput = {
           title: taskTitle.trim(),
@@ -176,6 +202,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
         }
         const created = await createTask(input)
         setTasks([...tasks, created])
+        showSuccess('Task created successfully.')
       }
       setShowTaskModal(false)
     } catch (err: unknown) {
@@ -197,10 +224,82 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
     try {
       await deleteTask(id)
       setTasks(tasks.filter((t) => t.id !== id))
+      showSuccess('Task deleted.')
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : 'Failed to delete task.')
     }
   }
+
+  // AI Subtask Suggestions actions
+  const handleOpenAiSubtasks = async (task: Task) => {
+    setAiTargetTask(task)
+    setShowAiModal(true)
+    setAiLoading(true)
+    setAiError(null)
+    setAiSubtasks([])
+
+    try {
+      const result = await suggestSubtasks(task.id)
+      const mapped: EditableSubtask[] = result.subtasks.map((item, index) => ({
+        ...item,
+        id: `ai-sub-${index}-${Date.now()}`,
+        selected: true,
+      }))
+      setAiSubtasks(mapped)
+    } catch (err: unknown) {
+      setAiError(err instanceof Error ? err.message : 'Failed to generate suggestions.')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const handleToggleSubtask = (id: string) => {
+    setAiSubtasks((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, selected: !item.selected } : item))
+    )
+  }
+
+  const handleUpdateSubtaskField = (id: string, field: 'title' | 'description', val: string) => {
+    setAiSubtasks((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: val } : item))
+    )
+  }
+
+  const handleApproveSubtasks = async () => {
+    if (!aiTargetTask) return
+    const approved = aiSubtasks.filter((item) => item.selected && item.title.trim() !== '')
+    if (approved.length === 0) {
+      setAiError('Please select at least one subtask with a non-empty title.')
+      return
+    }
+
+    setAiSaving(true)
+    setAiError(null)
+    try {
+      const payload: SubtaskItem[] = approved.map((item) => ({
+        title: item.title.trim(),
+        description: item.description?.trim() || null,
+      }))
+      const created = await batchCreateTasks({
+        project_id: aiTargetTask.project_id,
+        tasks: payload,
+      })
+      setTasks((prev) => [...prev, ...created])
+      setShowAiModal(false)
+      showSuccess(`Approved and saved ${created.length} subtask(s) into project!`)
+    } catch (err: unknown) {
+      setAiError(err instanceof Error ? err.message : 'Failed to save subtasks.')
+    } finally {
+      setAiSaving(false)
+    }
+  }
+
+  // Summary Metrics
+  const totalProjects = projects.length
+  const totalTasks = tasks.length
+  const completedTasks = tasks.filter((t) => t.status === 'done').length
+  const inProgressTasks = tasks.filter((t) => t.status === 'in_progress').length
+  const highPriorityTasks = tasks.filter((t) => t.priority === 'high' && t.status !== 'done').length
 
   // Filtered tasks
   const filteredTasks = tasks.filter((task) => {
@@ -218,7 +317,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
           <span className="user-avatar">{user.email.charAt(0).toUpperCase()}</span>
           <div>
             <span className="user-email">{user.email}</span>
-            <span className="user-badge">Authenticated</span>
+            <span className="user-badge">Authenticated • Owner</span>
           </div>
         </div>
         <div className="workspace-actions">
@@ -237,6 +336,41 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
         </div>
       )}
 
+      {successMessage && (
+        <div className="alert-success" role="status">
+          {successMessage}
+          <button className="close-btn" onClick={() => setSuccessMessage(null)}>
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Metrics Overview Cards */}
+      <div className="stats-grid">
+        <div className="stat-card">
+          <span className="stat-label">Total Projects</span>
+          <span className="stat-value purple-text">{totalProjects}</span>
+          <span className="stat-sub">Active Workspaces</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-label">Total Tasks</span>
+          <span className="stat-value blue-text">{totalTasks}</span>
+          <span className="stat-sub">{inProgressTasks} In Progress</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-label">Completed</span>
+          <span className="stat-value green-text">{completedTasks}</span>
+          <span className="stat-sub">
+            {totalTasks > 0 ? `${Math.round((completedTasks / totalTasks) * 100)}% done` : 'No tasks yet'}
+          </span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-label">High Priority</span>
+          <span className="stat-value red-text">{highPriorityTasks}</span>
+          <span className="stat-sub">Needs Attention</span>
+        </div>
+      </div>
+
       {loading ? (
         <div className="loading-state">Loading your workspace...</div>
       ) : (
@@ -246,7 +380,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
             <div className="section-header">
               <div>
                 <h2>Projects ({projects.length})</h2>
-                <p>Organize workstreams, repositories, and product goals.</p>
+                <p>Organize workstreams, repositories, and product milestones.</p>
               </div>
               <button onClick={handleOpenCreateProject} className="btn btn-primary">
                 + New Project
@@ -296,14 +430,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
                       </p>
                       <div className="project-card-footer">
                         <span className="task-count">{projectTaskCount} tasks</span>
-                        <button
-                          onClick={() =>
-                            setSelectedProjectId(selectedProjectId === project.id ? 'all' : project.id)
-                          }
-                          className={`btn btn-xs ${isSelected ? 'btn-active' : 'btn-outline'}`}
-                        >
-                          {isSelected ? 'Viewing Tasks' : 'Filter Tasks'}
-                        </button>
+                        <div className="card-footer-buttons">
+                          <button
+                            onClick={() => handleOpenCreateTask(project.id)}
+                            className="btn btn-xs btn-outline"
+                            title="Add task to this project"
+                          >
+                            + Task
+                          </button>
+                          <button
+                            onClick={() =>
+                              setSelectedProjectId(selectedProjectId === project.id ? 'all' : project.id)
+                            }
+                            className={`btn btn-xs ${isSelected ? 'btn-active' : 'btn-outline'}`}
+                          >
+                            {isSelected ? 'Viewing' : 'Filter'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )
@@ -317,7 +460,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
             <div className="section-header">
               <div>
                 <h2>Tasks ({filteredTasks.length})</h2>
-                <p>Track sprints, status transitions, and priority workloads.</p>
+                <p>Manage deliverables, assign priorities, and generate AI subtasks.</p>
               </div>
               {projects.length > 0 && (
                 <button onClick={() => handleOpenCreateTask()} className="btn btn-primary">
@@ -370,6 +513,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
                   <option value="high">High</option>
                 </select>
               </div>
+
+              {(selectedProjectId !== 'all' || statusFilter !== 'all' || priorityFilter !== 'all') && (
+                <button
+                  onClick={() => {
+                    setSelectedProjectId('all')
+                    setStatusFilter('all')
+                    priorityFilter !== 'all' && setPriorityFilter('all')
+                  }}
+                  className="btn btn-xs btn-outline"
+                >
+                  Reset Filters
+                </button>
+              )}
             </div>
 
             {/* Task List */}
@@ -408,6 +564,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
                       </div>
 
                       <div className="task-controls">
+                        {/* AI Subtask Button */}
+                        <button
+                          onClick={() => handleOpenAiSubtasks(task)}
+                          className="btn btn-xs btn-ai"
+                          title="Generate AI subtask suggestions for this task"
+                        >
+                          ✨ AI Subtasks
+                        </button>
+
                         <select
                           className={`status-select status-${task.status}`}
                           value={task.status}
@@ -511,7 +676,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
                   type="text"
                   value={taskTitle}
                   onChange={(e) => setTaskTitle(e.target.value)}
-                  placeholder="e.g. Configure JWT authentication"
+                  placeholder="e.g. Implement user authentication"
                   required
                 />
               </div>
@@ -520,7 +685,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
                 <textarea
                   value={taskDescription}
                   onChange={(e) => setTaskDescription(e.target.value)}
-                  placeholder="Detailed task criteria..."
+                  placeholder="Acceptance criteria, notes, or dependencies..."
                   rows={3}
                 />
               </div>
@@ -569,6 +734,103 @@ export const Workspace: React.FC<WorkspaceProps> = ({ user, onLogout }) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* AI Subtasks Modal */}
+      {showAiModal && aiTargetTask && (
+        <div className="modal-backdrop">
+          <div className="modal-content modal-ai">
+            <div className="ai-modal-header">
+              <span className="badge-ai">🤖 Generative AI</span>
+              <h3>Subtask Breakdown Suggestions</h3>
+              <p className="ai-modal-subtitle">
+                Target Task: <strong>{aiTargetTask.title}</strong>
+              </p>
+            </div>
+
+            {aiLoading ? (
+              <div className="ai-loading-box">
+                <div className="spinner"></div>
+                <p>Generating intelligent task breakdown with Gemini...</p>
+              </div>
+            ) : aiError ? (
+              <div className="ai-error-box">
+                <div className="alert-error">{aiError}</div>
+                <p className="ai-error-hint">
+                  Make sure <code>GEMINI_API_KEY</code> is configured in <code>backend/.env</code> and restart the backend.
+                </p>
+                <div className="modal-footer">
+                  <button onClick={() => setShowAiModal(false)} className="btn btn-secondary">
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="ai-results-box">
+                <p className="ai-instructions">
+                  Review the suggested subtasks below. Select which subtasks you want to approve and save into your project:
+                </p>
+
+                <div className="subtask-list">
+                  {aiSubtasks.map((subtask) => (
+                    <div
+                      key={subtask.id}
+                      className={`subtask-item ${subtask.selected ? 'checked' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={subtask.selected}
+                        onChange={() => handleToggleSubtask(subtask.id)}
+                        className="subtask-checkbox"
+                      />
+                      <div className="subtask-inputs">
+                        <input
+                          type="text"
+                          value={subtask.title}
+                          onChange={(e) =>
+                            handleUpdateSubtaskField(subtask.id, 'title', e.target.value)
+                          }
+                          className="subtask-title-input"
+                          placeholder="Subtask title"
+                        />
+                        <input
+                          type="text"
+                          value={subtask.description || ''}
+                          onChange={(e) =>
+                            handleUpdateSubtaskField(subtask.id, 'description', e.target.value)
+                          }
+                          className="subtask-desc-input"
+                          placeholder="Brief description or criteria..."
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    onClick={() => setShowAiModal(false)}
+                    className="btn btn-secondary"
+                    disabled={aiSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleApproveSubtasks}
+                    className="btn btn-primary"
+                    disabled={aiSaving || aiSubtasks.filter((s) => s.selected).length === 0}
+                  >
+                    {aiSaving
+                      ? 'Saving Tasks...'
+                      : `Approve & Save (${aiSubtasks.filter((s) => s.selected).length})`}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

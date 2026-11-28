@@ -5,4 +5,5 @@ psycopg[binary]
 pydantic-settings
 pyjwt
 bcrypt
+google-genai
 pytest
